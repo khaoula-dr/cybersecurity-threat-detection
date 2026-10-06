@@ -1,0 +1,20 @@
+# Cybersecurity Threat Detection System (AWS)
+
+Détection automatique de comportements réseau suspects avec XGBoost et Amazon SageMaker.
+
+## Objectif
+Classer chaque événement réseau en Normal (0) ou Suspect (1).
+Cibles : F1 ≥ 0,90 · AUC ≥ 0,95 · latence < 1 s · coût < 50 USD.
+
+## Architecture
+Logs réseau → S3 raw → Lambda → S3 processed → SageMaker (XGBoost)
+→ Évaluation → Model Registry → Endpoint → Prédiction
+
+## Stack
+AWS (S3, Lambda, SageMaker, CloudWatch, IAM) · Python · XGBoost
+
+## Méthode
+Scrum, 4 sprints de 2 semaines, suivi Jira (clé CTDS).
+
+## Statut
+Sprint 1 en cours.

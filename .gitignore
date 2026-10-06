@@ -1,0 +1,26 @@
+# Données volumineuses
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+*.csv
+*.parquet
+*.tar.gz
+
+# Secrets et identifiants AWS
+.env
+*.pem
+*.key
+.aws/
+credentials
+config.local.*
+
+# Python / notebooks
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Divers
+.DS_Store
+.vscode/
