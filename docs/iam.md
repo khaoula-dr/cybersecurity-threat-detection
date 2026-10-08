@@ -38,3 +38,14 @@ Relation de confiance : `sagemaker.amazonaws.com`.
 - Aucune policy avec `Action: *` sur `Resource: *`.
 - Rôles testés lors des premiers appels (US-08 pour Lambda, US-09 pour SageMaker).
 - Évolution : toute permission ajoutée plus tard sera notée ici avec la date et l'erreur `AccessDenied` qui la justifie.
+### Ajout : inférence (US-13, US-14)
+
+Utilisé par : la Lambda `ctds-inference`. Policy inline : `ctds-lambda-inference-policy`.
+
+| Permission | Ressource | Raison |
+| --- | --- | --- |
+| `s3:GetObject` | `bucket/processed/*` | Lire `columns.json` et `defaults.json` (spec des features et valeurs par défaut) |
+| `sagemaker:InvokeEndpoint` | endpoint `ctds-endpoint` | Appeler l'endpoint pour obtenir la probabilité |
+
+Justification : inférence, lecture de la spec et appel de l'endpoint.
+Aucune action `*` sur `Resource *`. Ajouté le 2026-10-08.
