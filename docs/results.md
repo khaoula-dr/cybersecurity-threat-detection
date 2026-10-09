@@ -28,3 +28,8 @@ sttl 3534 · ct_srv_dst 136 · ct_dst_sport_ltm 100 · proto_other 85 · swin 71
 - sttl domine (26 fois la 2e feature) : probable artefact du banc d'essai, généralisation incertaine sur un vrai réseau.
 - Distribution train/test différente (68 % contre 55 % d'attaques) et proportion d'attaques irréaliste.
 - Objectif F1 ≥ 0,90 manqué de 0,003 au seuil 0,5.
+Latence Lambda (Duration, mesurée dans CloudWatch) :
+- à chaud : 132 à 175 ms (objectif < 1 s atteint) ;
+- premier appel (démarrage à froid) : 3 355 ms, objectif non atteint.
+  Cause probable : initialisation du code (import boto3, lecture de columns.json et defaults.json)
+  avec 256 Mo de mémoire. Pistes : charger au démarrage, plus de mémoire, concurrence provisionnée.
