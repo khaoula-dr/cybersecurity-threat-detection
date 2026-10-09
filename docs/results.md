@@ -33,3 +33,47 @@ Latence Lambda (Duration, mesurée dans CloudWatch) :
 - premier appel (démarrage à froid) : 3 355 ms, objectif non atteint.
   Cause probable : initialisation du code (import boto3, lecture de columns.json et defaults.json)
   avec 256 Mo de mémoire. Pistes : charger au démarrage, plus de mémoire, concurrence provisionnée.
+  ## MVP : inférence JSON via Lambda (US-13, US-14)
+Chaîne : JSON → Lambda `ctds-inference` → endpoint SageMaker (CSV) → `{prediction, probability}`.
+
+| Cas | Résultat | Probabilité |
+| --- | --- | --- |
+| Attaque Exploits (sttl 254) | Suspicious | 0,999 |
+| Normal (sttl 62) | Normal | 0,235 |
+| Normal (sttl 254) | Suspicious | 0,608 |
+
+Latence Lambda (Duration, CloudWatch) :
+- à chaud : 132 à 175 ms (objectif < 1 s atteint) ;
+- premier appel (démarrage à froid) : 3 355 ms, objectif non atteint.
+  Cause probable : initialisation (import boto3, lecture de `columns.json` et `defaults.json`) avec 256 Mo.
+  Pistes : charger au démarrage, plus de mémoire, concurrence provisionnée (payante).
+Latence endpoint seul (test CSV) : 15 à 30 ms, 163 ms au premier appel.
+
+Limite : un trafic normal avec sttl = 254 est classé Suspect (le modèle s'appuie fortement sur sttl).
+Cas isolé, non représentatif du taux global de fausses alertes (25,8 % à 0,5).
+
+## Déclencheur S3 (US-11)
+Un upload de `raw/UNSW_NB15_training-set.csv` régénère `processed/` automatiquement.
+Limite : la Lambda lit des noms de fichiers fixes, donc valable pour ce dataset uniquement.
+
+## Logs CloudWatch (US-15)
+Groupes : `/aws/lambda/ctds-preprocessing`, `/aws/lambda/ctds-inference`,
+`/aws/sagemaker/TrainingJobs`, `/aws/sagemaker/Endpoints/ctds-endpoint`.
+Erreurs réelles retrouvées : ImportModuleError, Task timed out, ValidationError (endpoint absent).
+Erreur volontaire (`{"sttl": "abc"}`) : <à compléter au test de bout en bout, US-18>.
+
+## Pipeline SageMaker (US-16, US-17)
+Étapes : Preprocess → Train → Evaluate → CheckQuality → RegisterModel.
+Paramètres externalisés : `InputData`, `MinF1` (0,89), `MinAUC` (0,95).
+Sorties écrites sous `s3://.../pipeline/`, sans toucher à `processed/` ni `models/`.
+
+Reproductibilité (Preprocess + Train, première exécution) :
+- AUC de validation 0,99365, identique à l'entraînement manuel ;
+- modèle de 218,1 Ko dans les deux cas ;
+- 245 s facturées (environ 0,003 $).
+
+Seuil `MinF1 = 0,89` : choisi après avoir vu le F1 du test (0,8966). Un seuil à 0,90 rejetterait le modèle ;
+l'écart de 0,003 est expliqué par la différence de distribution entre train et test.
+
+Exécution complète : <à compléter : statut des 5 étapes, version 2 du registre, evaluation.json>.
+Test de rejet (`MinF1 = 0,95`) : <à compléter : aucune nouvelle version attendue>.
