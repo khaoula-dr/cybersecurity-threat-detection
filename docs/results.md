@@ -77,3 +77,13 @@ l'écart de 0,003 est expliqué par la différence de distribution entre train e
 
 Exécution complète : <à compléter : statut des 5 étapes, version 2 du registre, evaluation.json>.
 Test de rejet (`MinF1 = 0,95`) : <à compléter : aucune nouvelle version attendue>.
+Exécution complète (MinF1 = 0,89) : Preprocess, Train, Evaluate, CheckQuality, RegisterModel en Succeeded
+après correction d'une permission manquante. Version 2 `Approved` dans le registre.
+evaluation.json identique à l'évaluation manuelle : AUC 0,9837, F1 0,8966, recall 0,9839,
+precision 0,8236, matrice TN 27 449 · FP 9 551 · FN 732 · TP 44 600.
+
+Incident : RegisterModel a échoué (AccessDenied sur sagemaker:CreateModelPackageGroup).
+La policy du pipeline était incomplète ; l'action a été ajoutée et l'exécution reprise avec
+`retry-pipeline-execution`, sans refaire le prétraitement ni l'entraînement.
+
+Test de rejet (MinF1 = 0,95) : <à compléter : CheckQuality sans RegisterModel, pas de version 3>.
