@@ -10,7 +10,7 @@ Région : eu-north-1 · Dataset : UNSW-NB15 · Modèle : XGBoost 1.7-1 (conteneu
 | F1 (test officiel, seuil 0,5) | ≥ 0,90 | 0,897 | Manqué de 0,003, écart expliqué (voir 5 et 11) |
 | Latence d'inférence à chaud | < 1 s | 145 à 176 ms | Atteint |
 | Latence au premier appel (démarrage à froid) | < 1 s | 3,4 à 3,8 s | Non atteint |
-| Coût total | < 50 USD | <à relever dans Cost Explorer> | À confirmer (US-20) |
+| Coût total | < 50 USD | environ 0,10 USD (estimation AWS du 2026-10-10, mise à jour toutes les 24 h) | Atteint |
 
 ## 2. Données, features, découpage
 
@@ -131,11 +131,14 @@ Date : 2026-10-10. Endpoint déployé puis supprimé (liste vide vérifiée).
 
 ## 13. Coûts
 
-| Poste | Valeur |
-| --- | --- |
-| Entraînement manuel | environ 0,003 $ |
-| Endpoint (3 déploiements courts, supprimés après chaque test) | <à relever> |
-| Pipelines (3 exécutions) | <à relever> |
-| **Coût total du projet (Cost Explorer)** | **<à relever>** |
+Coût total estimé du projet : **environ 0,10 USD** sur 120 USD de crédits (relevé du 2026-10-10 dans la page Billing).
+Le montant « utilisé » réel est à 0,00 USD tant que la facture n'est pas finalisée.
 
+| Poste | Ordre de grandeur |
+| --- | --- |
+| Entraînement manuel | environ 0,003 $ (244 s) |
+| Pipelines (3 exécutions) et 3 déploiements d'endpoint, supprimés après chaque test | inclus dans le total |
+
+Les estimations AWS sont mises à jour environ toutes les 24 h : les dernières exécutions du 2026-10-10 peuvent ne pas y figurer.
 Aucun endpoint actif à la fin du projet (`aws sagemaker list-endpoints` renvoie une liste vide).
+
