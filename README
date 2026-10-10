@@ -1,60 +1,107 @@
-# Cybersecurity Threat Detection System (AWS)
+# Cybersecurity Threat Detection System on AWS
 
-Détection automatique de comportements réseau suspects avec **XGBoost** et **Amazon SageMaker**.
-Chaque événement réseau est classé **Normal (0)** ou **Suspect (1)**, avec une probabilité.
+Détection automatique de comportements réseau suspects à l'aide de **XGBoost**, **Amazon SageMaker** et des services AWS.
 
-Projet réalisé en solo, méthode Scrum (4 sprints de 2 semaines), suivi Jira (clé CTDS).
+Le système analyse les caractéristiques du trafic réseau et classe chaque événement comme **Normal (0)** ou **Suspect (1)**, avec une probabilité associée à la prédiction.
+
+**Projet individuel réalisé selon la méthode Scrum**, organisé en 4 sprints de 2 semaines et suivi dans Jira avec la clé `CTDS`.
+
+---
+
+## Sommaire
+
+* [Résultats](#résultats)
+* [Architecture](#architecture)
+* [Stack technique](#stack-technique)
+* [Structure du dépôt](#structure-du-dépôt)
+* [Prérequis](#prérequis)
+* [Installation](#installation)
+* [Utilisation](#utilisation)
+* [Sécurité](#sécurité)
+* [Coûts](#coûts)
+* [Limites connues](#limites-connues)
+* [Améliorations possibles](#améliorations-possibles)
+* [Méthodologie](#méthodologie)
+* [Licence des données](#licence-des-données)
 
 ## Résultats
 
-| Indicateur | Objectif | Résultat (test officiel UNSW-NB15) |
-| --- | --- | --- |
-| AUC | ≥ 0,95 | **0,984** |
-| F1 | ≥ 0,90 | **0,897** (0,003 sous l'objectif) |
-| Recall (attaques) | n/a | 0,984 |
-| Precision | n/a | 0,824 |
-| Latence d'inférence à chaud | < 1 s | 145 à 176 ms |
-| Latence au premier appel | < 1 s | 3,4 à 3,8 s (non atteint) |
-| Coût total | < 50 USD | voir `docs/results.md` |
+Les métriques suivantes ont été obtenues sur le jeu de test officiel UNSW-NB15.
 
-Le modèle rate 1,6 % des attaques mais produit 25,8 % de fausses alertes sur le trafic normal.
-**Limite majeure :** la variable `sttl` domine le modèle (environ 26 fois la suivante), très probablement un artefact du banc d'essai.
-Détails, seuils et limites : [`docs/results.md`](docs/results.md).
+| Indicateur                  | Objectif |               Résultat |
+| --------------------------- | -------: | ---------------------: |
+| AUC                         |   ≥ 0,95 |              **0,984** |
+| F1-score                    |   ≥ 0,90 |              **0,897** |
+| Recall des attaques         |        — |                  0,984 |
+| Precision                   |        — |                  0,824 |
+| Latence d'inférence à chaud |    < 1 s |             145–176 ms |
+| Latence du premier appel    |    < 1 s |              3,4–3,8 s |
+| Coût total                  | < 50 USD | Voir `docs/results.md` |
+
+Le modèle détecte environ **98,4 % des attaques** du jeu de test, mais génère également de fausses alertes sur une partie du trafic normal. Le F1-score reste inférieur de 0,003 à l'objectif fixé.
+
+**Limite majeure :** la variable `sttl` domine l'importance des caractéristiques, avec une importance environ 26 fois supérieure à celle de la caractéristique suivante. Cela peut indiquer un artefact du jeu de données et soulève des questions sur la généralisation du modèle à des réseaux réels.
+
+Les résultats détaillés, les seuils, les matrices de confusion et les coûts sont documentés dans [`docs/results.md`](docs/results.md).
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  A["Dataset UNSW-NB15"] --> B["S3 raw/"]
-  B -->|"ObjectCreated (training-set.csv)"| C["Lambda ctds-preprocessing"]
-  C --> D["S3 processed/<br/>train, validation, test, columns.json"]
-  D --> E["SageMaker Training<br/>XGBoost 1.7-1"]
-  E --> F["S3 models/ model.tar.gz"]
-  F --> G["Évaluation<br/>AUC, F1, matrice"]
-  G --> H["Model Registry<br/>ctds-xgboost-models"]
-  H --> I["Endpoint SageMaker<br/>ctds-endpoint"]
-  J["Client (JSON)"] --> K["Lambda ctds-inference"]
-  K -->|"CSV"| I
-  I -->|"probabilité"| K
-  K --> L["prediction + probability"]
-  C -.-> M["CloudWatch Logs"]
-  K -.-> M
-  E -.-> M
-```
-
-Le **pipeline SageMaker** (`ctds-pipeline`) automatise le cycle :
+### Flux de traitement et d'inférence
 
 ```mermaid
 flowchart LR
-  P1["Preprocess"] --> P2["Train"] --> P3["Evaluate"] --> P4{"CheckQuality<br/>F1 ≥ MinF1 et AUC ≥ MinAUC"}
-  P4 -->|"oui"| P5["RegisterModel"]
-  P4 -->|"non"| P6["Arrêt sans enregistrement"]
+    A["Dataset UNSW-NB15"] --> B["Amazon S3<br/>raw/"]
+    B -->|"Événement S3"| C["AWS Lambda<br/>ctds-preprocessing"]
+    C --> D["Amazon S3<br/>processed/"]
+    D --> E["SageMaker Training<br/>XGBoost 1.7-1"]
+    E --> F["Amazon S3<br/>Modèle entraîné"]
+    F --> G["Évaluation<br/>AUC, F1, matrice"]
+    G --> H["SageMaker Model Registry<br/>ctds-xgboost-models"]
+
+    J["Client JSON"] --> K["AWS Lambda<br/>ctds-inference"]
+    K -->|"Caractéristiques au format CSV"| I["SageMaker Endpoint"]
+    I -->|"Score du modèle"| K
+    K --> L["Prédiction et probabilité"]
+
+    C -.-> M["Amazon CloudWatch"]
+    K -.-> M
+    E -.-> M
 ```
 
-## Stack
+### Pipeline SageMaker
 
-AWS (S3, Lambda, SageMaker, Model Registry, SageMaker Pipelines, CloudWatch, IAM) · Python 3.12 · XGBoost 1.7-1 · pandas · pytest · Git/GitHub · Jira.
-Région : **eu-north-1** (Stockholm).
+Le pipeline `ctds-pipeline` automatise le prétraitement, l'entraînement, l'évaluation et le contrôle qualité avant l'enregistrement du modèle.
+
+```mermaid
+flowchart LR
+    A["Preprocess"] --> B["Train"]
+    B --> C["Evaluate"]
+    C --> D{"CheckQuality<br/>F1 ≥ MinF1<br/>et AUC ≥ MinAUC"}
+    D -->|"Conditions satisfaites"| E["RegisterModel"]
+    D -->|"Conditions non satisfaites"| F["Arrêt sans enregistrement"]
+```
+
+Le contrôle qualité empêche l'enregistrement d'un modèle lorsque les seuils configurés ne sont pas atteints.
+
+**Test de rejet documenté :** avec `MinF1 = 0,95`, les étapes `Preprocess`, `Train`, `Evaluate` et `CheckQuality` ont réussi, mais aucune étape `RegisterModel` n'a été exécutée. Le registre est resté à la version 2, sans création de version 3.
+
+## Stack technique
+
+| Catégorie                          | Technologies                    |
+| ---------------------------------- | ------------------------------- |
+| Cloud                              | AWS                             |
+| Stockage                           | Amazon S3                       |
+| Traitement serverless              | AWS Lambda                      |
+| Machine learning                   | Amazon SageMaker, XGBoost 1.7-1 |
+| Automatisation ML                  | SageMaker Pipelines             |
+| Gestion des modèles                | SageMaker Model Registry        |
+| Monitoring                         | Amazon CloudWatch               |
+| Sécurité                           | AWS IAM, chiffrement SSE-S3     |
+| Langage                            | Python 3.12                     |
+| Données et tests                   | pandas, pytest                  |
+| Versionnement et gestion de projet | Git, GitHub, Jira               |
+
+**Région AWS :** `eu-north-1` — Europe (Stockholm).
 
 ## Structure du dépôt
 
@@ -63,151 +110,296 @@ cybersecurity-threat-detection/
 ├── README.md
 ├── requirements.txt
 ├── data/
-│   ├── raw/                  # non versionné
-│   └── processed/            # non versionné
+│   ├── raw/                     # Données brutes, non versionnées
+│   └── processed/               # Données préparées, non versionnées
 ├── lambda/
-│   ├── preprocessing.py      # nettoyage, features, découpage (Lambda + pipeline)
-│   └── inference.py          # JSON -> CSV -> endpoint -> {prediction, probability}
+│   ├── preprocessing.py         # Prétraitement des données
+│   └── inference.py             # Inférence JSON → endpoint
 ├── ml/
-│   ├── launch_training.py    # training job manuel
-│   ├── evaluate.py           # métriques sur le test
-│   ├── analyze.py            # seuil, attaques manquées, importance des features
-│   ├── register_model.py     # Model Registry + objet Model
-│   ├── deploy_endpoint.py    # création de l'endpoint
-│   ├── delete_endpoint.py    # suppression de l'endpoint
-│   ├── make_defaults.py      # médianes du train (valeurs par défaut)
-│   ├── test_endpoint.py      # test CSV direct + latence
-│   └── e2e_test.py           # tests de bout en bout via la Lambda
+│   ├── launch_training.py       # Entraînement XGBoost
+│   ├── evaluate.py              # Évaluation du modèle
+│   ├── analyze.py               # Analyse des métriques et features
+│   ├── register_model.py        # Enregistrement du modèle
+│   ├── deploy_endpoint.py       # Déploiement de l'endpoint
+│   ├── delete_endpoint.py       # Suppression de l'endpoint
+│   ├── make_defaults.py         # Calcul des valeurs par défaut
+│   ├── test_endpoint.py         # Test direct de l'endpoint
+│   └── e2e_test.py              # Tests via la Lambda d'inférence
 ├── sagemaker/
 │   └── pipeline/
-│       ├── preprocess.py     # étape Preprocess
-│       ├── evaluate_step.py  # étape Evaluate
-│       └── build_pipeline.py # définition et lancement du pipeline
+│       ├── preprocess.py        # Étape Preprocess
+│       ├── evaluate_step.py     # Étape Evaluate
+│       └── build_pipeline.py    # Définition du pipeline
 ├── notebooks/
-│   └── eda.ipynb
-├── tests/                    # tests unitaires (pytest)
+│   └── eda.ipynb                # Analyse exploratoire
+├── tests/                       # Tests unitaires
 └── docs/
-    ├── dataset.md            # choix du dataset et licence
-    ├── features.md           # features, cible, découpage
-    ├── iam.md                # rôles et permissions
-    └── results.md            # résultats, limites, coûts
+    ├── dataset.md               # Dataset et conditions d'utilisation
+    ├── features.md              # Variables et découpage
+    ├── iam.md                   # Rôles et permissions
+    ├── results.md               # Résultats, limites et coûts
+    └── cahier-des-charges.md    # Cahier des charges
 ```
 
 ## Prérequis
 
-- Un compte AWS (le plan gratuit suffit), une région unique : `eu-north-1`.
-- Quotas SageMaker `ml.m5.large` pour l'entraînement et l'endpoint (≥ 1).
-- Python 3.12 et Git en local (WSL conseillé sous Windows) ; **AWS CloudShell** pour lancer les scripts AWS sans clé d'accès.
-- Dans CloudShell : `pip install "sagemaker<3"` (le SDK v3 a changé l'API `Estimator`).
-- Le dataset UNSW-NB15 (fichiers `training-set` et `testing-set`), à télécharger depuis la source officielle. Licence et conditions d'usage : `docs/dataset.md`.
+* Un compte AWS avec les autorisations nécessaires pour S3, Lambda et SageMaker.
+* La région AWS `eu-north-1`.
+* Des quotas SageMaker suffisants pour l'entraînement et l'hébergement de l'endpoint, notamment `ml.m5.large`.
+* Python 3.12 et Git.
+* AWS CloudShell ou un environnement local configuré avec des identifiants AWS temporaires ou un rôle autorisé.
+* Le dataset UNSW-NB15 téléchargé depuis la [source officielle](https://research.unsw.edu.au/projects/unsw-nb15-dataset).
+
+**Important :** le plan gratuit AWS ne garantit pas que tous les services SageMaker soient gratuits. Vérifiez les tarifs et les quotas avant de lancer des ressources.
+
+Les conditions d'utilisation des données sont décrites dans [`docs/dataset.md`](docs/dataset.md).
 
 ## Installation
+
+Cloner le dépôt et préparer l'environnement Python :
 
 ```bash
 git clone https://github.com/khaoula-dr/cybersecurity-threat-detection.git
 cd cybersecurity-threat-detection
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt pytest
-pytest tests/ -v          # 5 tests attendus
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install pytest
+
+pytest tests/ -v
 ```
+
+Les fichiers CSV du dataset et les données traitées ne sont pas versionnés dans Git. Placez les fichiers téléchargés dans `data/raw/` conformément aux noms attendus par les scripts.
+
+Pour les opérations AWS, configurez les autorisations nécessaires. Dans CloudShell, utilisez les autorisations de la session AWS en cours, sans créer de clés d'accès supplémentaires.
 
 ## Utilisation
 
-Les adaptations de noms (bucket, compte, rôles) se font en tête de chaque script : remplace `cybersecurity-threat-detection-174797531196` et `174797531196` par les tiens.
+Les noms de bucket, les rôles IAM, les noms de ressources et les identifiants de compte doivent correspondre à votre environnement. Vérifiez la configuration de chaque script avant son exécution.
 
-### 1. Infrastructure de base
-1. Créer le bucket S3 (chiffrement, versioning, accès public bloqué) avec `raw/`, `processed/`, `models/`.
-2. Créer les rôles `ctds-lambda-role` et `ctds-sagemaker-role` avec les permissions de `docs/iam.md`.
-3. Charger les trois fichiers du dataset dans `raw/`.
+### 1. Préparer l'infrastructure S3
 
-### 2. Prétraitement
-Créer la Lambda `ctds-preprocessing` (Python 3.12, 1024 Mo, 5 min, layer AWSSDKPandas-Python312, gestionnaire `preprocessing.handler`).
-Ajouter le déclencheur S3 : préfixe `raw/`, suffixe `training-set.csv`. Un upload régénère `processed/`.
+Créer un bucket S3 dans `eu-north-1` et configurer :
 
-### 3. Entraînement, évaluation, enregistrement (CloudShell)
-```bash
-python ml/launch_training.py       # training job XGBoost (environ 4 min, moins de 0,01 $)
-pip install xgboost==2.1.4 pandas scikit-learn
-python ml/evaluate.py              # écrit models/metrics.json
-python ml/register_model.py        # Model Registry + objet Model
+* Le blocage de tous les accès publics.
+* Le chiffrement côté serveur SSE-S3.
+* Le versioning du bucket.
+* Les préfixes `raw/`, `processed/` et `models/`.
+
+Charger les trois fichiers UNSW-NB15 dans `raw/` :
+
+```text
+raw/
+├── UNSW_NB15_features.csv
+├── UNSW_NB15_training-set.csv
+└── UNSW_NB15_testing-set.csv
 ```
-XGBoost ≥ 3.1 ne lit plus le format binaire produit par le conteneur 1.7 : utiliser une version ≤ 3.0 pour l'évaluation locale.
 
-### 4. Pipeline automatisé
+Vérifier le contenu :
+
+```bash
+aws s3 ls s3://VOTRE_BUCKET/raw/ --region eu-north-1
+```
+
+### 2. Configurer le prétraitement
+
+Créer la fonction Lambda `ctds-preprocessing` avec le runtime Python 3.12, les paramètres mémoire et timeout adaptés, et le gestionnaire `preprocessing.handler`.
+
+Configurer le déclencheur S3 avec le préfixe `raw/` et le suffixe `training-set.csv`, selon la configuration du projet.
+
+La fonction prépare les données et écrit les fichiers nécessaires dans `processed/`. Vérifier les journaux dans CloudWatch après un déclenchement.
+
+### 3. Entraîner et évaluer le modèle
+
+Dans l'environnement contenant les scripts et les dépendances du projet :
+
+```bash
+python ml/launch_training.py
+python ml/evaluate.py
+python ml/register_model.py
+```
+
+Ces scripts permettent respectivement de lancer l'entraînement XGBoost, d'évaluer le modèle et d'enregistrer la version admissible dans SageMaker Model Registry.
+
+Les dépendances doivent être compatibles avec le format du modèle produit par le conteneur XGBoost SageMaker 1.7-1. En particulier, une version locale de XGBoost incompatible peut empêcher le chargement du modèle lors de l'évaluation.
+
+### 4. Exécuter le pipeline SageMaker
+
+Installer une version compatible du SDK SageMaker si nécessaire :
+
+```bash
+pip install "sagemaker<3"
+```
+
+Puis exécuter :
+
 ```bash
 export SAGEMAKER_SUPPRESS_V2_WARNING=1
-python sagemaker/pipeline/build_pipeline.py          # MinF1 = 0,89 (défaut)
-python sagemaker/pipeline/build_pipeline.py 0.95     # test de rejet : aucun enregistrement
+
+python sagemaker/pipeline/build_pipeline.py
 ```
-Le script lance l'exécution et rend la main (environ 12 minutes). Suivi :
+
+Pour tester le rejet d'un modèle lorsque `MinF1 = 0,95` :
+
 ```bash
-ARN=$(aws sagemaker list-pipeline-executions --pipeline-name ctds-pipeline --region eu-north-1 \
-  --query "PipelineExecutionSummaries[0].PipelineExecutionArn" --output text)
-aws sagemaker list-pipeline-execution-steps --pipeline-execution-arn $ARN --region eu-north-1 \
+python sagemaker/pipeline/build_pipeline.py 0.95
+```
+
+Le temps d'exécution et le coût dépendent des ressources et des étapes effectivement lancées.
+
+Pour récupérer la dernière exécution du pipeline :
+
+```bash
+ARN=$(aws sagemaker list-pipeline-executions \
+  --pipeline-name ctds-pipeline \
+  --region eu-north-1 \
+  --query "PipelineExecutionSummaries[0].PipelineExecutionArn" \
+  --output text)
+
+aws sagemaker describe-pipeline-execution \
+  --pipeline-execution-arn "$ARN" \
+  --region eu-north-1 \
+  --query "PipelineExecutionStatus"
+
+aws sagemaker list-pipeline-execution-steps \
+  --pipeline-execution-arn "$ARN" \
+  --region eu-north-1 \
   --query "PipelineExecutionSteps[].[StepName,StepStatus]"
 ```
-Chaque lancement refait toutes les étapes (environ 0,03 $). En cas d'échec d'une étape, `aws sagemaker retry-pipeline-execution` reprend à l'étape en erreur.
 
-### 5. Inférence
-1. Créer la Lambda `ctds-inference` (256 Mo, 30 s, gestionnaire `inference.handler`, variables `BUCKET` et `ENDPOINT`).
-2. `python ml/make_defaults.py` écrit `processed/defaults.json`.
-3. **Déployer l'endpoint** (le compteur démarre, environ 0,12 $/h) :
+Une exécution peut réussir tout en s'arrêtant volontairement avant `RegisterModel`, lorsque la condition de qualité n'est pas satisfaite.
+
+### 5. Déployer et tester l'inférence
+
+Créer la Lambda `ctds-inference` avec le gestionnaire `inference.handler`, puis configurer ses variables d'environnement `BUCKET` et `ENDPOINT`.
+
+Générer les valeurs par défaut nécessaires à l'inférence :
+
+```bash
+python ml/make_defaults.py
+```
+
+**Attention : le déploiement de l'endpoint peut entraîner des coûts horaires.** Ne lancez cette étape que lorsque vous êtes prêt à effectuer les tests.
+
 ```bash
 python ml/deploy_endpoint.py
-python ml/e2e_test.py
-```
-4. **Supprimer l'endpoint immédiatement après les tests** :
-```bash
-python ml/delete_endpoint.py
-aws sagemaker list-endpoints --region eu-north-1     # doit renvoyer une liste vide
 ```
 
-Exemple d'appel de la Lambda :
-```json
-{"proto": "tcp", "service": "http", "state": "FIN", "sttl": 62.0, "dur": 1.687215,
- "spkts": 10.0, "dpkts": 10.0, "sbytes": 848.0, "dbytes": 1262.0, "rate": 11.261161}
+Exécuter les tests de bout en bout :
+
+```bash
+python ml/e2e_test.py
 ```
-Réponse :
+
+Le script vérifie trois cas : une attaque, un trafic normal et un cas limite connu du modèle. Chaque cas est appelé deux fois pour comparer les résultats et les latences.
+
+Exemple d'entrée pour la Lambda :
+
 ```json
-{"prediction": "Normal", "probability": 0.2347}
+{
+  "proto": "tcp",
+  "service": "http",
+  "state": "FIN",
+  "sttl": 62.0,
+  "dur": 1.687215,
+  "spkts": 10.0,
+  "dpkts": 10.0,
+  "sbytes": 848.0,
+  "dbytes": 1262.0,
+  "rate": 11.261161
+}
 ```
-Les champs absents sont remplacés par la médiane du train. Plus l'appelant fournit de champs (au minimum `sttl`, `proto`, `service`, `state`), plus la prédiction est fiable.
+
+Exemple de réponse :
+
+```json
+{
+  "prediction": "Normal",
+  "probability": 0.2347
+}
+```
+
+Les valeurs de la réponse sont illustratives : elles dépendent du modèle déployé et de l'entrée. Les champs absents sont remplacés par les valeurs par défaut définies par le projet.
+
+### 6. Supprimer l'endpoint après les tests
+
+Dès que les tests sont terminés, supprimer l'endpoint :
+
+```bash
+python ml/delete_endpoint.py
+```
+
+Vérifier les endpoints encore présents :
+
+```bash
+aws sagemaker list-endpoints \
+  --region eu-north-1 \
+  --query "Endpoints[].[EndpointName,EndpointStatus]" \
+  --output table
+```
+
+Vérifier que l'endpoint créé pour les tests a bien disparu. La suppression de l'endpoint ne supprime pas nécessairement les configurations, les modèles ou les artefacts S3 associés.
 
 ## Sécurité
 
-- Moindre privilège IAM, aucune policy `Action *` sur `Resource *` (détails : `docs/iam.md`).
-- Bucket chiffré (SSE-S3), versioning actif, accès public bloqué.
-- Aucun secret dans Git (`.gitignore` : clés, `.env`, données).
-- Compte root utilisé pour le pilotage (MFA actif), faute d'alternative sur le plan gratuit ; aucune clé d'accès root créée.
+* Bucket S3 privé, accès public bloqué, chiffrement SSE-S3 et versioning activé.
+* Permissions IAM limitées aux ressources et actions nécessaires.
+* Aucun secret, fichier `.env`, identifiant ou dataset brut ne doit être ajouté au dépôt Git.
+* Utilisation des rôles IAM et des autorisations de la session AWS plutôt que de clés codées en dur.
+* Surveillance des exécutions Lambda et SageMaker dans CloudWatch.
+
+Consulter [`docs/iam.md`](docs/iam.md) pour les rôles et permissions du projet.
 
 ## Coûts
 
-- Entraînement : environ 0,003 $ par job (244 s sur `ml/m5.large`).
-- Endpoint `ml.m5.large` : environ 0,12 $/h tant qu'il existe. **Le supprimer après chaque test.**
-- Lambdas, S3, Model Registry : négligeable au repos.
-- Coût total mesuré : voir `docs/results.md`.
+Les montants ci-dessous sont des estimations issues de l'environnement du projet et non des tarifs garantis.
+
+| Ressource                        |                                              Estimation |
+| -------------------------------- | ------------------------------------------------------: |
+| Job d'entraînement               | Environ 0,003 USD par job, selon la durée et l'instance |
+| Endpoint SageMaker `ml.m5.large` | Environ 0,12 USD par heure selon l'estimation du projet |
+| Lambda, S3 et Model Registry     |                 Dépend de l'utilisation et de la région |
+| Coût total du projet             |               Voir [`docs/results.md`](docs/results.md) |
+
+**Bonne pratique :** supprimer les endpoints dès que les tests sont terminés et vérifier les ressources encore actives dans AWS Billing et SageMaker.
 
 ## Limites connues
 
-- `sttl` domine le modèle : probable artefact du banc d'essai, généralisation incertaine (ablation non réalisée).
-- Train et test n'ont pas la même distribution ; les attaques sont majoritaires, ce qui est irréaliste.
-- F1 de 0,897, 0,003 sous l'objectif, au seuil 0,5 choisi sur la validation.
-- 86 % des attaques manquées sont des `Fuzzers`.
-- Les features `ct_*` sont remplacées par des médianes à l'inférence si elles ne sont pas fournies.
-- Démarrage à froid de la Lambda d'inférence : 3,4 à 3,8 s au premier appel.
-- Le déclencheur S3 ne vaut que pour ce dataset (noms de fichiers fixes).
-- Seuil `MinF1 = 0,89` du pipeline fixé après observation du résultat.
+* `sttl` domine l'importance du modèle ; sa contribution doit être étudiée avant toute utilisation réelle.
+* Les distributions du jeu d'entraînement et du jeu de test diffèrent.
+* Les attaques sont majoritaires dans le dataset, contrairement à de nombreux environnements réels.
+* Le F1-score de 0,897 est légèrement inférieur à l'objectif de 0,90.
+* Une partie importante des attaques manquées appartient à la catégorie `Fuzzers`.
+* Les caractéristiques `ct_*` absentes sont remplacées par des valeurs par défaut à l'inférence.
+* Le premier appel est plus lent que les appels suivants, notamment en raison du démarrage à froid.
+* Le déclencheur S3 repose sur les noms et les préfixes de fichiers prévus pour ce dataset.
+* Le seuil `MinF1 = 0,89` a été configuré après observation des résultats ; une validation indépendante serait nécessaire pour une évaluation plus rigoureuse.
 
-## Pistes d'amélioration (stretch non réalisé)
+Ce projet constitue un prototype académique et ne doit pas être considéré comme un système de détection prêt pour la production sans validation supplémentaire.
 
-Ablation `sttl` · alertes SNS · dashboard et alarmes CloudWatch · SageMaker Model Monitor · Infrastructure as Code (Terraform ou CloudFormation) · KMS et CloudTrail · réduction du démarrage à froid.
+## Améliorations possibles
 
-## Méthode
+Les évolutions suivantes sont envisagées :
 
-Scrum, 4 sprints de 2 semaines, 25 user stories, MVP livré à la fin du sprint 3.
-Convention de branches et de commits avec la clé Jira (ex. `CTDS-12`).
-Cahier des charges : `docs/cahier-des-charges.md`.
+* Réaliser une étude d'ablation de `sttl`.
+* Ajouter des alertes via Amazon SNS.
+* Créer un tableau de bord et des alarmes CloudWatch.
+* Mettre en place SageMaker Model Monitor.
+* Automatiser l'infrastructure avec Terraform ou AWS CloudFormation.
+* Renforcer l'audit et la sécurité avec AWS CloudTrail et AWS KMS.
+* Réduire la latence du premier appel et améliorer la gestion des erreurs.
+
+## Méthodologie
+
+Projet individuel organisé selon **Scrum**, avec quatre sprints de deux semaines, un backlog Jira et des user stories suivies sous la clé `CTDS`.
+
+Le travail couvre la préparation des données, l'infrastructure AWS, l'entraînement et l'évaluation du modèle, l'automatisation du pipeline, le déploiement de l'inférence et les tests.
+
+Le cahier des charges est disponible dans [`docs/cahier-des-charges.md`](docs/cahier-des-charges.md).
 
 ## Licence des données
 
-UNSW-NB15 : voir `docs/dataset.md` pour les conditions d'usage de la source officielle.
+Le projet utilise le dataset **UNSW-NB15**. La source officielle, les informations de licence et les conditions d'utilisation sont décrites dans [`docs/dataset.md`](docs/dataset.md) et sur le [site officiel du dataset UNSW-NB15](https://research.unsw.edu.au/projects/unsw-nb15-dataset).
